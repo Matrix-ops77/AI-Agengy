@@ -1,0 +1,21 @@
+
+displayName: "Test CPU Utilization Alert"
+combiner: "OR"
+conditions:
+- displayName: "CPU Usage High"
+  conditionThreshold:
+    filter: |
+      resource.type = "gce_instance"
+      metric.type = "compute.googleapis.com/instance/cpu/utilization"
+    aggregations:
+    - alignmentPeriod: "60s"
+      perSeriesAligner: "ALIGN_MEAN"
+    comparison: "COMPARISON_GT"
+    thresholdValue: 0.8 # 80% CPU
+    duration: "0s"
+    trigger:
+      count: 1
+documentation:
+  content: "This is a test alert for high CPU utilization."
+  mimeType: "text/markdown"
+userLabels: {}

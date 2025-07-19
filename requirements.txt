@@ -1,0 +1,6 @@
+google-cloud-workflows
+google-cloud-storage
+google-cloud-documentai
+google-cloud-bigquery
+functions-framework
+requests

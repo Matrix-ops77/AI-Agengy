@@ -1,0 +1,17 @@
+displayName: "Invoice Processing Workflow Log Failure Alert"
+combiner: "OR"
+conditions:
+- displayName: "Log Match Condition"
+  conditionAbsent:
+    filter: |
+      resource.type = "cloud_workflows.googleapis.com/Workflow"
+      log_id("cloudaudit.googleapis.com/activity")
+      protoPayload.methodName = "google.cloud.workflows.v1.Workflows.RunWorkflow"
+      protoPayload.status.code = 0
+    duration: "120s"
+    trigger:
+      count: 1
+documentation:
+  content: "This alert fires when a Cloud Workflow execution fails based on log entries."
+  mimeType: "text/markdown"
+userLabels: {}

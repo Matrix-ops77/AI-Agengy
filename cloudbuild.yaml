@@ -1,0 +1,19 @@
+steps:
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['functions', 'deploy', 'trigger-invoice-workflow',
+         '--runtime', 'python39',
+         '--entry-point', 'trigger_workflow',
+         '--trigger-bucket', 'ai-invoice-processor-0707-invoices',
+         '--region', 'us-east4',
+         '--project', '${PROJECT_ID}',
+         '--allow-unauthenticated',
+         '--source', '.',
+         '--set-env-vars', 'GCP_PROJECT_ID=${PROJECT_ID}']
+  id: 'deploy-cloud-function'
+
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['workflows', 'deploy', 'invoice-processing-workflow',
+         '--source', 'invoice-processing-workflow.yaml',
+         '--location', 'us-east4',
+         '--project', '${PROJECT_ID}']
+  id: 'deploy-cloud-workflow'

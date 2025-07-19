@@ -1,0 +1,29 @@
+{
+  "bindings": [
+    {
+      "role": "roles/workflowexecutions.editor",
+      "members": [
+        "serviceAccount:eventarc-trigger-sa@ai-invoice-processor-0707.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/storage.objectViewer",
+      "members": [
+        "serviceAccount:eventarc-trigger-sa@ai-invoice-processor-0707.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/documentai.viewer",
+      "members": [
+        "serviceAccount:eventarc-trigger-sa@ai-invoice-processor-0707.iam.gserviceaccount.com"
+      ]
+    },
+    {
+      "role": "roles/bigquery.dataEditor",
+      "members": [
+        "serviceAccount:eventarc-trigger-sa@ai-invoice-processor-0707.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "etag": "ACAB"
+}

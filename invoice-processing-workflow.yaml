@@ -1,0 +1,93 @@
+main:
+  params: [event]
+  steps:
+    - init:
+        assign:
+          - project_id: "ai-invoice-processor-0707"
+          - location: "us"
+          - processor_id: "2b1d3c825180a7f2" # Your Document AI Processor ID
+          - gcs_input_uri: ${"gs://" + event.bucket + "/" + event.name}
+          - bq_dataset: "automation_outputs"
+          - bq_table: "processed_invoices"
+
+    - read_gcs_file:
+        call: googleapis.storage.v1.objects.get
+        args:
+            bucket: ${event.bucket}
+            object: ${event.name}
+            alt: "media"
+        result: gcs_file_content
+
+    - process_document:
+        call: googleapis.documentai.v1.projects.locations.processors.process
+        args:
+          name: ${"projects/" + project_id + "/locations/" + location + "/processors/" + processor_id}
+          body:
+            raw_document:
+              content: ${base64.encode(gcs_file_content)}
+              mime_type: "application/pdf"
+        result: doc_ai_result
+    - log_doc_ai_result:
+        call: sys.log
+        args:
+            text: >
+                ${"Document AI processing complete. Full result: " + text.decode(json.encode(doc_ai_result))}
+            severity: "INFO"
+    - init_entities:
+        assign:
+          - vendor_name: null
+          - invoice_date: ${event.parsed_invoice_date} # Use pre-parsed date from Cloud Function
+          - due_date: ${event.parsed_due_date} # Use pre-parsed date from Cloud Function
+          - total_amount: null
+    - extract_entities:
+        for:
+            value: entity
+            in: ${doc_ai_result.document.entities}
+            steps:
+                - switch:
+                    switch:
+                      - condition: ${entity.type == "vendor_name"}
+                        assign:
+                          - vendor_name: ${entity.mentionText}
+                      - condition: ${entity.type == "total_amount"}
+                        assign:
+                          - total_amount: ${double(text.replace_all(entity.mentionText, "$", ""))}
+                      - condition: ${entity.type == "invoice_date"}
+                        assign:
+                          - invoice_date: ${entity.mentionText}
+                      - condition: ${entity.type == "due_date"}
+                        assign:
+                          - due_date: ${entity.mentionText}
+    - log_extracted_entities:
+        call: sys.log
+        args:
+            text: "Entities extracted: Vendor: ${vendor_name}, Invoice Date: ${invoice_date}, Due Date: ${due_date}, Total Amount: ${total_amount}"
+            severity: "INFO"
+    - create_record:
+        assign:
+          - record_to_insert:
+              vendor_name: ${vendor_name}
+              invoice_date: ${invoice_date}
+              due_date: ${due_date}
+              total_amount: ${total_amount}
+              processed_timestamp: ${sys.now()}
+              source_file_path: ${gcs_input_uri}
+    - log_before_bigquery:
+        call: sys.log
+        args:
+            text: >
+                ${"Attempting to insert record into BigQuery: " + text.decode(json.encode(record_to_insert))}
+            severity: "INFO"
+    - write_to_bigquery:
+        call: googleapis.bigquery.v2.tabledata.insertAll
+        args:
+          projectId: ${project_id}
+          datasetId: ${bq_dataset}
+          tableId: ${bq_table}
+          body:
+            rows:
+              - json: ${record_to_insert}
+        result: bq_insert_result
+
+    - finish:
+        return: ${bq_insert_result}
