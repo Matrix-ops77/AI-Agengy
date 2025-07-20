@@ -4,3 +4,4 @@ google-cloud-documentai
 google-cloud-bigquery
 functions-framework
 requests
+flake8
