@@ -36,8 +36,8 @@ This script will:
 - Create a Document AI processor.
 - Create a service account.
 - Grant necessary IAM roles.
-- Deploy the Cloud Function (`main.py`).
 - Create an Eventarc trigger that invokes the Cloud Function.
+- Create a monitoring alert policy.
 
 ## Usage
 

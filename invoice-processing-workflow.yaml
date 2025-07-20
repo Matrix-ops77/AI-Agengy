@@ -1,93 +1,188 @@
 main:
-  params: [event]
+  params: [event, project_id, processor_id, dlq_url]
   steps:
-    - init:
-        assign:
-          - project_id: "ai-invoice-processor-0707"
-          - location: "us"
-          - processor_id: "2b1d3c825180a7f2" # Your Document AI Processor ID
-          - gcs_input_uri: ${"gs://" + event.bucket + "/" + event.name}
-          - bq_dataset: "automation_outputs"
-          - bq_table: "processed_invoices"
+    - main_try:
+        try:
+          - init:
+              assign:
+                - location: "us"
+                - gcs_input_uri: ${"gs://" + event.bucket + "/" + event.name}
+                - bq_dataset: "automation_outputs"
+                - bq_table: "processed_invoices"
 
-    - read_gcs_file:
-        call: googleapis.storage.v1.objects.get
-        args:
-            bucket: ${event.bucket}
-            object: ${event.name}
-            alt: "media"
-        result: gcs_file_content
+          - read_gcs_file:
+              call: googleapis.storage.v1.objects.get
+              args:
+                  bucket: ${event.bucket}
+                  object: ${event.name}
+                  alt: "media"
+              result: gcs_file_content
 
-    - process_document:
-        call: googleapis.documentai.v1.projects.locations.processors.process
-        args:
-          name: ${"projects/" + project_id + "/locations/" + location + "/processors/" + processor_id}
-          body:
-            raw_document:
-              content: ${base64.encode(gcs_file_content)}
-              mime_type: "application/pdf"
-        result: doc_ai_result
-    - log_doc_ai_result:
-        call: sys.log
-        args:
-            text: >
-                ${"Document AI processing complete. Full result: " + text.decode(json.encode(doc_ai_result))}
-            severity: "INFO"
-    - init_entities:
-        assign:
-          - vendor_name: null
-          - invoice_date: ${event.parsed_invoice_date} # Use pre-parsed date from Cloud Function
-          - due_date: ${event.parsed_due_date} # Use pre-parsed date from Cloud Function
-          - total_amount: null
-    - extract_entities:
-        for:
-            value: entity
-            in: ${doc_ai_result.document.entities}
-            steps:
-                - switch:
-                    switch:
-                      - condition: ${entity.type == "vendor_name"}
-                        assign:
-                          - vendor_name: ${entity.mentionText}
-                      - condition: ${entity.type == "total_amount"}
-                        assign:
-                          - total_amount: ${double(text.replace_all(entity.mentionText, "$", ""))}
-                      - condition: ${entity.type == "invoice_date"}
-                        assign:
-                          - invoice_date: ${entity.mentionText}
-                      - condition: ${entity.type == "due_date"}
-                        assign:
-                          - due_date: ${entity.mentionText}
-    - log_extracted_entities:
-        call: sys.log
-        args:
-            text: "Entities extracted: Vendor: ${vendor_name}, Invoice Date: ${invoice_date}, Due Date: ${due_date}, Total Amount: ${total_amount}"
-            severity: "INFO"
-    - create_record:
-        assign:
-          - record_to_insert:
-              vendor_name: ${vendor_name}
-              invoice_date: ${invoice_date}
-              due_date: ${due_date}
-              total_amount: ${total_amount}
-              processed_timestamp: ${sys.now()}
-              source_file_path: ${gcs_input_uri}
-    - log_before_bigquery:
-        call: sys.log
-        args:
-            text: >
-                ${"Attempting to insert record into BigQuery: " + text.decode(json.encode(record_to_insert))}
-            severity: "INFO"
-    - write_to_bigquery:
-        call: googleapis.bigquery.v2.tabledata.insertAll
-        args:
-          projectId: ${project_id}
-          datasetId: ${bq_dataset}
-          tableId: ${bq_table}
-          body:
-            rows:
-              - json: ${record_to_insert}
-        result: bq_insert_result
+          - process_document:
+              call: googleapis.documentai.v1.projects.locations.processors.process
+              args:
+                name: ${"projects/" + project_id + "/locations/" + location + "/processors/" + processor_id}
+                body:
+                  raw_document:
+                    content: ${base64.encode(gcs_file_content)}
+                    mime_type: "application/pdf"
+              result: doc_ai_result
+          - log_doc_ai_result:
+              call: sys.log
+              args:
+                  text: >
+                      ${"Document AI processing complete. Full result: " + text.decode(json.encode(doc_ai_result))}
+                  severity: "INFO"
+          - init_entities:
+              assign:
+                - vendor_name: null
+                - invoice_date: null
+                - due_date: null
+                - total_amount: null
+                - needs_review: false
+                - review_reason: ""
 
-    - finish:
-        return: ${bq_insert_result}
+          - extract_entities:
+              for:
+                  value: entity
+                  in: ${doc_ai_result.document.entities}
+                  steps:
+                      - switch:
+                          switch:
+                            - condition: ${entity.type == "vendor_name"}
+                              assign:
+                                - vendor_name: { value: entity.mentionText, confidence: entity.confidence }
+                            - condition: ${entity.type == "total_amount"}
+                              assign:
+                                - total_amount: { value: double(text.replace_all(entity.mentionText, "$", "")), confidence: entity.confidence }
+                            - condition: ${entity.type == "invoice_date"}
+                              assign:
+                                - invoice_date: { value: entity.mentionText, confidence: entity.confidence }
+                            - condition: ${entity.type == "due_date"}
+                              assign:
+                                - due_date: { value: entity.mentionText, confidence: entity.confidence }
+
+          - check_confidence_scores:
+              for:
+                  value: item
+                  in: [vendor_name, total_amount, invoice_date, due_date]
+                  steps:
+                    - check_item_confidence:
+                        switch:
+                          - condition: ${item.confidence < 0.9}
+                            assign:
+                              - needs_review: true
+                              - review_reason: ${"Low confidence score for " + item.key}
+
+          - log_extracted_entities:
+              call: sys.log
+              args:
+                  text: "Entities extracted: Vendor: ${vendor_name.value}, Invoice Date: ${invoice_date.value}, Due Date: ${due_date.value}, Total Amount: ${total_amount.value}"
+                  severity: "INFO"
+          - check_if_review_is_needed:
+              switch:
+                - condition: ${needs_review}
+                  next: create_callback
+              next: parse_invoice_date_try
+
+          - create_callback:
+              call: events.create_callback_endpoint
+              args:
+                  http_callback_method: "POST"
+              result: callback_details
+
+          - wait_for_review:
+              call: events.await_callback
+              args:
+                  callback: ${callback_details}
+                  timeout: 43200 # 12 hours
+              result: review_result
+
+          - process_review:
+              assign:
+                - vendor_name: ${review_result.body.vendor_name}
+                - invoice_date: ${review_result.body.invoice_date}
+                - due_date: ${review_result.body.due_date}
+                - total_amount: ${review_result.body.total_amount}
+
+          - parse_invoice_date_try:
+              try:
+                - parse_invoice_date:
+                    call: http.post
+                    args:
+                        url: "YOUR_DATE_PARSER_FUNCTION_URL" # This will be replaced during deployment
+                        body:
+                            date_string: ${invoice_date}
+                    result: parsed_invoice_date
+              except:
+                - handle_invoice_date_parse_error:
+                    call: sys.log
+                    args:
+                        text: ${"Failed to parse invoice_date: " + invoice_date}
+                        severity: "WARNING"
+                    next: assign_null_invoice_date
+                - assign_null_invoice_date:
+                    assign:
+                        - parsed_invoice_date:
+                            body:
+                                parsed_date: null
+          - parse_due_date_try:
+              try:
+                - parse_due_date:
+                    call: http.post
+                    args:
+                        url: "YOUR_DATE_PARSER_FUNCTION_URL" # This will be replaced during deployment
+                        body:
+                            date_string: ${due_date}
+                    result: parsed_due_date
+              except:
+                - handle_due_date_parse_error:
+                    call: sys.log
+                    args:
+                        text: ${"Failed to parse due_date: " + due_date}
+                        severity: "WARNING"
+                    next: assign_null_due_date
+                - assign_null_due_date:
+                    assign:
+                        - parsed_due_date:
+                            body:
+                                parsed_date: null
+          - create_record:
+              assign:
+                - record_to_insert:
+                    vendor_name: ${vendor_name}
+                    invoice_date: ${parsed_invoice_date.body.parsed_date}
+                    due_date: ${parsed_due_date.body.parsed_date}
+                    total_amount: ${total_amount}
+                    processed_timestamp: ${sys.now()}
+                    source_file_path: ${gcs_input_uri}
+          - log_before_bigquery:
+              call: sys.log
+              args:
+                  text: >
+                      ${"Attempting to insert record into BigQuery: " + text.decode(json.encode(record_to_insert))}
+                  severity: "INFO"
+          - write_to_bigquery:
+              call: googleapis.bigquery.v2.tabledata.insertAll
+              args:
+                projectId: ${project_id}
+                datasetId: ${bq_dataset}
+                tableId: ${bq_table}
+                body:
+                  rows:
+                    - json: ${record_to_insert}
+              result: bq_insert_result
+
+          - finish:
+              return: ${bq_insert_result}
+        except:
+          - handle_failure:
+              call: http.post
+              args:
+                  url: ${dlq_url}
+                  body:
+                      event: ${event}
+                      error: ${last_error}
+              result: dlq_result
+          - finish_failed:
+              return: ${dlq_result}

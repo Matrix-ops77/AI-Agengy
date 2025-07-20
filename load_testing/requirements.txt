@@ -1,0 +1,3 @@
+faker
+reportlab
+google-cloud-storage

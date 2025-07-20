@@ -1,19 +1,149 @@
 steps:
-- name: 'gcr.io/cloud-builders/gcloud'
-  args: ['functions', 'deploy', 'trigger-invoice-workflow',
-         '--runtime', 'python39',
-         '--entry-point', 'trigger_workflow',
-         '--trigger-bucket', 'ai-invoice-processor-0707-invoices',
-         '--region', 'us-east4',
-         '--project', '${PROJECT_ID}',
-         '--allow-unauthenticated',
-         '--source', '.',
-         '--set-env-vars', 'GCP_PROJECT_ID=${PROJECT_ID}']
-  id: 'deploy-cloud-function'
+  # Build and Deploy FastAPI Backend to Cloud Run
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'BuildBackendImage'
+    args: ['build', '-t', 'us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${COMMIT_SHA}', './backend_api']
 
-- name: 'gcr.io/cloud-builders/gcloud'
-  args: ['workflows', 'deploy', 'invoice-processing-workflow',
-         '--source', 'invoice-processing-workflow.yaml',
-         '--location', 'us-east4',
-         '--project', '${PROJECT_ID}']
-  id: 'deploy-cloud-workflow'
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'PushBackendImage'
+    args: ['push', 'us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${COMMIT_SHA}']
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'DeployBackendToCloudRun'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'backend-api'
+      - '--image=us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${COMMIT_SHA}'
+      - '--region=us-east4'
+      - '--platform=managed'
+      - '--allow-unauthenticated' # Consider removing this in production and using IAP
+      - '--project=${PROJECT_ID}'
+      - '--set-env-vars=GCS_BUCKET_NAME=ai-invoice-processor-0707-invoices,API_KEY=${_API_KEY}' # Use a substitution variable for API_KEY
+
+  # Build and Deploy React Frontend to Firebase Hosting
+  - name: 'node'
+    id: 'InstallFrontendDependencies'
+    entrypoint: 'npm'
+    args: ['install']
+    dir: 'frontend_ui'
+
+  - name: 'node'
+    id: 'BuildFrontend'
+    entrypoint: 'npm'
+    args: ['run', 'build']
+    dir: 'frontend_ui'
+
+  - name: 'gcr.io/cloud-builders/firebase'
+    id: 'DeployFrontendToFirebase'
+    args: ['deploy', '--project=${PROJECT_ID}', '--only=hosting']
+    dir: 'frontend_ui'
+
+  # Deploy the Date Parser Helper Function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'DeployDateParser'
+    args:
+      - 'functions'
+      - 'deploy'
+      - 'date-parser-helper'
+      - '--runtime=python39'
+      - '--entry-point=date_parser_helper'
+      - '--trigger-http'
+      - '--allow-unauthenticated'
+      - '--region=us-east4'
+      - '--project=${PROJECT_ID}'
+      - '--source=./date_parser_helper'
+
+  # Get the URL of the Date Parser Function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'GetDateParserURL'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud functions describe date-parser-helper --project=${PROJECT_ID} --region=us-east4 --format='value(httpsTrigger.url)' > /workspace/date_parser_url.txt
+
+  # Update the Workflow file with the Date Parser URL
+  - name: 'python'
+    id: 'UpdateWorkflowFileWithDateParser'
+    entrypoint: 'python'
+    args:
+      - 'update_workflow_url.py'
+      - 'invoice-processing-workflow.yaml'
+      - '/workspace/date_parser_url.txt'
+
+  # Deploy the DLQ Helper Function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'DeployDLQHelper'
+    args:
+      - 'functions'
+      - 'deploy'
+      - 'move-to-dlq-helper'
+      - '--runtime=python39'
+      - '--entry-point=move_to_dlq_helper'
+      - '--trigger-http'
+      - '--allow-unauthenticated'
+      - '--region=us-east4'
+      - '--project=${PROJECT_ID}'
+      - '--source=./move_to_dlq_helper'
+      - '--set-env-vars=GCP_PROJECT_ID=${PROJECT_ID}'
+
+  # Get the URL of the DLQ Helper Function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'GetDLQHelperURL'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud functions describe move-to-dlq-helper --project=${PROJECT_ID} --region=us-east4 --format='value(httpsTrigger.url)' > /workspace/dlq_helper_url.txt
+
+  # Update the Workflow file with the DLQ Helper URL
+  - name: 'python'
+    id: 'UpdateWorkflowFileWithDLQ'
+    entrypoint: 'python'
+    args:
+      - 'update_workflow_url.py'
+      - 'invoice-processing-workflow.yaml'
+      - '/workspace/dlq_helper_url.txt'
+
+  # Create the DLQ Bucket
+  - name: 'gcr.io/cloud-builders/gcs-tool'
+    id: 'CreateDLQBucket'
+    args: ['mb', '-p', '${PROJECT_ID}', '-l', 'us-east4', 'gs://${PROJECT_ID}-invoices-dlq']
+
+  # Deploy the Main Trigger Cloud Function
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'DeployMainFunction'
+    args:
+      - 'functions'
+      - 'deploy'
+      - 'trigger-invoice-workflow'
+      - '--runtime=python39'
+      - '--entry-point=trigger_workflow'
+      - '--trigger-event=google.storage.object.finalize'
+      - '--trigger-resource=${PROJECT_ID}-invoices'
+      - '--region=us-east4'
+      - '--project=${PROJECT_ID}'
+      - '--set-env-vars=GCP_PROJECT_ID=${PROJECT_ID}'
+
+  # Deploy the Invoice Processing Workflow
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'DeployWorkflow'
+    args:
+      - 'workflows'
+      - 'deploy'
+      - 'invoice-processing-workflow'
+      - '--source=invoice-processing-workflow.yaml'
+      - '--location=us-east4'
+      - '--project=${PROJECT_ID}'
+
+  # Create the Alert Policy
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'CreateAlertPolicy'
+    entrypoint: 'python'
+    args:
+      - 'create_alert_policy.py'
+      - '${PROJECT_ID}'
+
+substitutions:
+  _API_KEY: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2' # IMPORTANT: Replace with your actual API key. Consider using Secret Manager for production.
