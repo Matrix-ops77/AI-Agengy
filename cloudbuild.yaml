@@ -2,11 +2,11 @@ steps:
   # Build and Deploy FastAPI Backend to Cloud Run
   - name: 'gcr.io/cloud-builders/docker'
     id: 'BuildBackendImage'
-    args: ['build', '-t', 'us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${COMMIT_SHA}', './backend_api']
+    args: ['build', '-t', 'us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${_COMMIT_SHA}', './backend_api']
 
   - name: 'gcr.io/cloud-builders/docker'
     id: 'PushBackendImage'
-    args: ['push', 'us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${COMMIT_SHA}']
+    args: ['push', 'us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${_COMMIT_SHA}']
 
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'DeployBackendToCloudRun'
@@ -147,3 +147,5 @@ steps:
 
 logsBucket: 'gs://ai-invoice-processor-0707-cloudbuild-logs'
 
+substitutions:
+  _API_KEY: '' # IMPORTANT: Set this as a secret in your GitHub repository settings
