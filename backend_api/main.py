@@ -29,11 +29,24 @@ if not FIREBASE_SERVICE_ACCOUNT_KEY_JSON:
     raise ValueError("Firebase service account key environment variable is missing.")
 
 try:
-    cred = credentials.Certificate(json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_JSON))
+    # Load the service account key JSON
+    service_account_info = json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_JSON)
+    cred = credentials.Certificate(service_account_info)
     firebase_admin.initialize_app(cred)
     logger.info("Firebase Admin SDK initialized successfully.")
+
+    # Set GOOGLE_APPLICATION_CREDENTIALS for other Google Cloud client libraries
+    # Create a temporary file for the credentials
+    with open("/tmp/firebase_credentials.json", "w") as f:
+        json.dump(service_account_info, f)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/firebase_credentials.json"
+    logger.info("GOOGLE_APPLICATION_CREDENTIALS set for other Google Cloud libraries.")
+
+except json.JSONDecodeError as e:
+    logger.error(f"Error decoding Firebase service account key JSON: {e}", exc_info=True)
+    raise ValueError("Invalid Firebase service account key JSON format.") from e
 except Exception as e:
-    logger.error(f"Error initializing Firebase Admin SDK: {e}", exc_info=True)
+    logger.error(f"Error initializing Firebase Admin SDK or setting GAC: {e}", exc_info=True)
     raise
 
 
