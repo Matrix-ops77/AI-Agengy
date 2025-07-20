@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build
-        working-directory: frontend_ui
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v2'
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AI_INVOICE_PROCESSOR_0707 }}
-          channelId: live
-          projectId: ai-invoice-processor-0707
+          credentials_json: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_AI_INVOICE_PROCESSOR_0707 }}'
+      - id: 'gcloud'
+        uses: 'google-github-actions/setup-gcloud@v2'
+      - id: 'build'
+        run: 'gcloud builds submit --config cloudbuild.yaml'

@@ -1,18 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
+import { initializeApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import firebaseConfig from './firebaseConfig';
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 
 function App() {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState('');
-  // IMPORTANT: In a production environment, this API key should NOT be hardcoded.
-  // It should be loaded securely, e.g., from an environment variable during build time,
-  // or fetched from a dedicated backend endpoint that provides a temporary token.
-  const API_KEY = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2'; // Replace with your actual API key
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [user, setUser] = useState<any>(null);
+
+  // Backend API URL - REPLACE WITH YOUR ACTUAL CLOUD RUN SERVICE URL
+  // Example: const BACKEND_API_URL = "https://your-backend-service-xxxxxx-uc.a.run.app";
+  const BACKEND_API_URL = "YOUR_CLOUD_RUN_BACKEND_URL"; 
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
       setFile(event.target.files[0]);
       setMessage(''); // Clear previous messages
+    }
+  };
+
+  const handleSignUp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      setMessage('Signed up successfully!');
+    } catch (error: any) {
+      setMessage(`Sign up error: ${error.message}`);
+      console.error('Sign up error:', error);
+    }
+  };
+
+  const handleSignIn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setMessage('Signed in successfully!');
+    } catch (error: any) {
+      setMessage(`Sign in error: ${error.message}`);
+      console.error('Sign in error:', error);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setMessage('Signed out successfully!');
+      setFile(null);
+    } catch (error: any) {
+      setMessage(`Sign out error: ${error.message}`);
+      console.error('Sign out error:', error);
     }
   };
 
@@ -22,15 +72,21 @@ function App() {
       setMessage('Please select a file to upload.');
       return;
     }
+    if (!user) {
+      setMessage('Please sign in to upload files.');
+      return;
+    }
 
     setMessage('Uploading...');
 
     try {
+      const idToken = await user.getIdToken();
+
       // Step 1: Get a signed URL from your backend
-      const generateUrlResponse = await fetch(`/generate-signed-url/?file_name=${file.name}&content_type=${file.type}`, {
+      const generateUrlResponse = await fetch(`${BACKEND_API_URL}/generate-signed-url/?file_name=${file.name}&content_type=${file.type}`, {
         method: 'POST',
         headers: {
-          'X-API-Key': API_KEY,
+          'Authorization': `Bearer ${idToken}`,
         },
       });
 
@@ -53,7 +109,6 @@ function App() {
       if (uploadResponse.ok) {
         setMessage(`File "${file.name}" uploaded successfully to Google Cloud Storage.`);
       } else {
-        // GCS might return a non-JSON error, so check for text first
         const errorText = await uploadResponse.text();
         throw new Error(`Failed to upload file to GCS: ${uploadResponse.status} - ${errorText}`);
       }
@@ -66,11 +121,38 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Upload Your Documents</h1>
-        <form onSubmit={handleSubmit}>
-          <input type="file" onChange={handleFileChange} />
-          <button type="submit" disabled={!file}>Upload</button>
-        </form>
+        <h1>AI Invoice Processor</h1>
+        {!user ? (
+          <div>
+            <h2>Sign Up / Sign In</h2>
+            <form onSubmit={handleSignIn}>
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button type="submit">Sign In</button>
+              <button type="button" onClick={handleSignUp}>Sign Up</button>
+            </form>
+          </div>
+        ) : (
+          <div>
+            <h2>Welcome, {user.email}!</h2>
+            <button onClick={handleSignOut}>Sign Out</button>
+            <h3>Upload Your Documents</h3>
+            <form onSubmit={handleSubmit}>
+              <input type="file" onChange={handleFileChange} />
+              <button type="submit" disabled={!file}>Upload</button>
+            </form>
+          </div>
+        )}
         {message && <p>{message}</p>}
       </header>
     </div>
