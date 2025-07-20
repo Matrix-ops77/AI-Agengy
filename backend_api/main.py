@@ -28,8 +28,13 @@ if not FIREBASE_SERVICE_ACCOUNT_KEY_JSON:
     logger.error("Firebase service account key not found in environment variables.")
     raise ValueError("Firebase service account key environment variable is missing.")
 
-cred = credentials.Certificate(json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_JSON))
-firebase_admin.initialize_app(cred)
+try:
+    cred = credentials.Certificate(json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_JSON))
+    firebase_admin.initialize_app(cred)
+    logger.info("Firebase Admin SDK initialized successfully.")
+except Exception as e:
+    logger.error(f"Error initializing Firebase Admin SDK: {e}", exc_info=True)
+    raise
 
 
 # Configure Google Cloud Storage
