@@ -14,7 +14,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'backend-api'
-      - '--image=us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${COMMIT_SHA}'
+      - '--image=us-east4-docker.pkg.dev/${PROJECT_ID}/ai-agency-repo/backend-api:${_COMMIT_SHA}'
       - '--region=us-east4'
       - '--platform=managed'
       - '--allow-unauthenticated' # Consider removing this in production and using IAP
