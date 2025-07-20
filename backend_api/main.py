@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import logging
 import firebase_admin
 from firebase_admin import credentials, auth
+import json
 
 
 # Load environment variables from .env file
@@ -20,17 +21,14 @@ logger = logging.getLogger(__name__)
 
 
 # Initialize Firebase Admin SDK
-# IMPORTANT: Download your service account key JSON file from Firebase Console
-# Project settings -> Service accounts -> Generate new private key
-# Place this file in the backend_api directory and ensure it's NOT committed to Git.
-# Add it to your .gitignore: backend_api/serviceAccountKey.json
-FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.path.join(os.path.dirname(__file__), "serviceAccountKey.json")
+# The service account key is now loaded from a Secret Manager environment variable
+FIREBASE_SERVICE_ACCOUNT_KEY_JSON = os.environ.get("FIREBASE_SERVICE_ACCOUNT_KEY")
 
-if not os.path.exists(FIREBASE_SERVICE_ACCOUNT_KEY_PATH):
-    logger.error(f"Firebase service account key not found at {FIREBASE_SERVICE_ACCOUNT_KEY_PATH}")
-    raise FileNotFoundError("Firebase service account key file is missing.")
+if not FIREBASE_SERVICE_ACCOUNT_KEY_JSON:
+    logger.error("Firebase service account key not found in environment variables.")
+    raise ValueError("Firebase service account key environment variable is missing.")
 
-cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_KEY_PATH)
+cred = credentials.Certificate(json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_JSON))
 firebase_admin.initialize_app(cred)
 
 
