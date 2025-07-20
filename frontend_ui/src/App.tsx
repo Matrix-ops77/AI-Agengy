@@ -27,7 +27,7 @@ function App() {
 
   // Backend API URL - REPLACE WITH YOUR ACTUAL CLOUD RUN SERVICE URL
   // Example: const BACKEND_API_URL = "https://your-backend-service-xxxxxx-uc.a.run.app";
-  const BACKEND_API_URL = "YOUR_CLOUD_RUN_BACKEND_URL"; 
+  const BACKEND_API_URL = "https://backend-api-717501108525.us-east4.run.app"; 
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
