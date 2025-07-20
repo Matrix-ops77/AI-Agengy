@@ -20,7 +20,7 @@ steps:
       - '--allow-unauthenticated' # Consider removing this in production and using IAP
       - '--project=${PROJECT_ID}'
       - '--set-env-vars=GCS_BUCKET_NAME=ai-invoice-processor-0707-invoices,API_KEY=${_API_KEY}'
-      - '--set-secrets=FIREBASE_SERVICE_ACCOUNT_KEY=firebase-service-account-key:latest' # Use a substitution variable for API_KEY
+      - '--set-secrets=FIREBASE_SERVICE_ACCOUNT_KEY=firebase-service-account-key:latest'
 
   # Build and Deploy React Frontend to Firebase Hosting
   - name: 'node'

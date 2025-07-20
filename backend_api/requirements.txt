@@ -3,3 +3,4 @@ uvicorn
 python-dotenv
 google-cloud-storage
 firebase-admin
+httpx[http2]

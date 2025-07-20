@@ -72,7 +72,7 @@ async def generate_signed_url(
         )
 
     # Basic validation for file_name to prevent path traversal
-    if ".." in file_name or "/" in file_name or "\\" in file_name:
+    if ".." in file_name or "/" in file_name or "\" in file_name:
         raise HTTPException(status_code=400, detail="Invalid file name.")
 
     # Whitelist of allowed content types
