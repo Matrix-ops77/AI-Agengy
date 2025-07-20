@@ -2,11 +2,21 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "firebase/firestore";
 import firebaseConfig from './firebaseConfig';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
+
+function App() {
+  const [file, setFile] = useState<File | null>(null);
+  const [message, setMessage] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [user, setUser] = useState<any>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
 
 function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -20,10 +30,23 @@ function App() {
   const BACKEND_API_URL = "YOUR_CLOUD_RUN_BACKEND_URL"; 
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
-    return () => unsubscribe();
+
+    const q = query(collection(db, "uploadedFiles"), orderBy("timestamp", "desc"));
+    const unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+      const files: any[] = [];
+      snapshot.forEach((doc) => {
+        files.push({ id: doc.id, ...doc.data() });
+      });
+      setUploadedFiles(files);
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeFirestore();
+    };
   }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,6 +131,14 @@ function App() {
 
       if (uploadResponse.ok) {
         setMessage(`File "${file.name}" uploaded successfully to Google Cloud Storage.`);
+        // Save file metadata to Firestore
+        await addDoc(collection(db, "uploadedFiles"), {
+          userId: user.uid,
+          fileName: file.name,
+          fileType: file.type,
+          gcsPath: `gs://${BUCKET_NAME}/${file.name}`,
+          timestamp: serverTimestamp(),
+        });
       } else {
         const errorText = await uploadResponse.text();
         throw new Error(`Failed to upload file to GCS: ${uploadResponse.status} - ${errorText}`);
@@ -154,6 +185,19 @@ function App() {
           </div>
         )}
         {message && <p>{message}</p>}
+
+        {user && uploadedFiles.length > 0 && (
+          <div>
+            <h3>Your Uploaded Documents</h3>
+            <ul>
+              {uploadedFiles.map((doc) => (
+                <li key={doc.id}>
+                  <strong>{doc.fileName}</strong> ({doc.fileType}) - {new Date(doc.timestamp?.toDate()).toLocaleString()}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </header>
     </div>
   );
