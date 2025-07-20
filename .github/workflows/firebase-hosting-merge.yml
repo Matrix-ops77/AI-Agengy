@@ -18,4 +18,5 @@ jobs:
       - id: 'gcloud'
         uses: 'google-github-actions/setup-gcloud@v2'
       - id: 'build'
-        run: gcloud builds submit --config cloudbuild.yaml --substitutions="_COMMIT_SHA=${{ github.sha }}"
+                run: |
+          gcloud builds submit --config cloudbuild.yaml --substitutions=_COMMIT_SHA=${{ github.sha }}
